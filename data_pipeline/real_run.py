@@ -24,7 +24,53 @@ from data_pipeline.string_info import parse_string_info, translate_gene_list
 from data_pipeline.seed_genes import SEED_GENES, get_seed_vector, get_seed_genes_present
 from data_pipeline.rwr import random_walk_with_restart
 from data_pipeline.features import compute_features
-from data_pipeline.fusion import leave_one_seed_out_eval
+from data_pipeline.fusion import build_model, evaluate_ranking
+
+
+def _leave_one_seed_out_eval_no_leakage(adj, W, gene_list, features_df, labels, seeds_present,
+                                          feature_cols, model_type: str = "logistic"):
+    """
+    Leave-one-seed-out CV where the RWR score feature is recomputed PER FOLD with the
+    held-out seed gene excluded from the RWR seed set -- avoids the leakage of a
+    globally-seeded rwr_score encoding "this gene was a seed" into its own held-out
+    evaluation. degree/pagerank/betweenness/closeness are topology-only and reused
+    as-is (not a function of the seed set, safe).
+    """
+    n = len(labels)
+    pos_idx = np.where(labels == 1)[0]
+    neg_idx = np.where(labels == 0)[0]
+    rwr_col = feature_cols.index("rwr_score") if "rwr_score" in feature_cols else None
+    X_base = features_df[feature_cols].values.astype(float)
+
+    oof_scores = np.zeros(n, dtype=float)
+    neg_scores_accum = np.zeros(len(neg_idx))
+
+    seeds_upper = set(s.upper() for s in seeds_present)
+    gene_list_upper = [g.upper() for g in gene_list]
+
+    for p in pos_idx:
+        held_out_symbol = gene_list_upper[p]
+        fold_seed_genes = [s for s in seeds_present if s.upper() != held_out_symbol]
+
+        X = X_base.copy()
+        if rwr_col is not None:
+            p0_fold = get_seed_vector(gene_list, fold_seed_genes)
+            rwr_fold = random_walk_with_restart(W, p0_fold, restart_prob=0.3, tol=1e-6)
+            X[:, rwr_col] = rwr_fold
+
+        train_mask = np.ones(n, dtype=bool)
+        train_mask[p] = False
+        model = build_model(model_type)
+        model.fit(X[train_mask], labels[train_mask])
+        oof_scores[p] = model.predict_proba(X[p : p + 1])[0, 1]
+        neg_scores_accum += model.predict_proba(X[neg_idx])[:, 1]
+
+    if len(pos_idx) > 0:
+        neg_scores_accum /= len(pos_idx)
+        oof_scores[neg_idx] = neg_scores_accum
+
+    baseline = features_df["degree_norm"].values
+    return evaluate_ranking(labels, oof_scores, baseline, ks=[10, 25, 50, 100])
 
 
 def run(string_path: str, string_info_path: str, out_dir: str, threshold: int = 700,
@@ -58,6 +104,12 @@ def run(string_path: str, string_info_path: str, out_dir: str, threshold: int = 
     rwr_scores = random_walk_with_restart(W, p0, restart_prob=0.3, tol=1e-6)
 
     print(f"[4/5] Computing topology features (betweenness_k={betweenness_k} approx sampling)...")
+    # NOTE: degree/pagerank/betweenness/closeness are graph-topology-only (not a function
+    # of the seed set) and are safe to compute once. rwr_score IS a function of the seed
+    # set and is recomputed per-fold below with the held-out gene excluded from seeding --
+    # using the globally-seeded rwr_score directly in leave-one-seed-out CV would leak
+    # "this gene was a seed" information into its own held-out evaluation (a real bug
+    # caught on the first run of this pipeline: it produced a suspicious AUPRC of ~1.0).
     features_df = compute_features(adj, gene_list, rwr_scores=rwr_scores, betweenness_k=betweenness_k)
 
     labels = np.array([1 if g in set(s.upper() for s in seeds_present) else 0
@@ -67,9 +119,9 @@ def run(string_path: str, string_info_path: str, out_dir: str, threshold: int = 
     feature_cols = ["degree_norm", "pagerank", "betweenness", "closeness", "rwr_score"]
     feature_cols = [c for c in feature_cols if c in features_df.columns]
 
-    print("[5/5] Running leave-one-seed-out CV (fusion vs degree-only baseline)...")
-    result = leave_one_seed_out_eval(
-        features_df, labels, feature_cols, baseline_col="degree_norm", model_type=model_type
+    print("[5/5] Running LEAKAGE-FREE leave-one-seed-out CV (fusion vs degree-only baseline)...")
+    result = _leave_one_seed_out_eval_no_leakage(
+        adj, W, gene_list, features_df, labels, seeds_present, feature_cols, model_type=model_type
     )
 
     summary = {
