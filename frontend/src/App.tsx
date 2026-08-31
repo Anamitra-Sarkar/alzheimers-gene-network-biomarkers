@@ -96,6 +96,15 @@ export default function App() {
         </div>
       </header>
 
+      <section aria-label="Hero illustration" style={{ background: '#eef2ff', borderBottom: '1px solid var(--border)', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '12px 24px' }}>
+        <img
+          src="/hero.png"
+          alt="Illustration of a dark navy human brain overlaid with a glowing teal network of interconnected nodes representing gene interactions in Alzheimer's disease research"
+          style={{ width: '100%', maxWidth: '720px', maxHeight: '320px', objectFit: 'contain', display: 'block', height: 'auto' }}
+          loading="eager"
+        />
+      </section>
+
       <Banner modelLoaded={modelLoaded} revision={health?.model_revision} />
 
       <main id="main-content" style={{ flex: 1, maxWidth: '1100px', width: '100%', margin: '0 auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
