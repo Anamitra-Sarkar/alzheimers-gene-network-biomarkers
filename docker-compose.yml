@@ -1,0 +1,25 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      # Fail-closed release gate: OFF by default (safe). Set to "true" + revision to enable ranking.
+      MODEL_RELEASE_APPROVED: "${MODEL_RELEASE_APPROVED:-}"
+      APPROVED_ARTIFACT_REVISION: "${APPROVED_ARTIFACT_REVISION:-}"
+      MODEL_ARTIFACT_PATH: "${MODEL_ARTIFACT_PATH:-artifacts/model.joblib}"
+      DEMO_MODE: "${DEMO_MODE:-}"
+      # Optional Firebase auth; leave empty for stub mode (any non-empty Bearer token accepted as stub user)
+      FIREBASE_SERVICE_ACCOUNT_JSON: "${FIREBASE_SERVICE_ACCOUNT_JSON:-}"
+    volumes:
+      # Mount artifacts if present locally (read-only). Container still fail-closes if artifact missing.
+      - ./artifacts:/app/artifacts:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).read()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
