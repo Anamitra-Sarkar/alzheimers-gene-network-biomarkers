@@ -82,13 +82,14 @@ export default function App() {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <header style={{ background: '#fff', borderBottom: '1px solid var(--border)', padding: '16px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
+      <a href="#main-content" style={{ position: 'absolute', left: '-9999px', top: 'auto', width: '1px', height: '1px', overflow: 'hidden' }} onFocus={e => Object.assign(e.currentTarget.style, { left: '16px', top: '16px', width: 'auto', height: 'auto', background: '#fff', padding: '8px 12px', border: '2px solid var(--accent)', borderRadius: '6px', zIndex: 1000 }) as unknown as string} onBlur={e => Object.assign(e.currentTarget.style, { left: '-9999px', width: '1px', height: '1px' }) as unknown as string}>Skip to content</a>
+      <header style={{ background: '#fff', borderBottom: '1px solid var(--border)', padding: '16px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+        <div style={{ minWidth: '200px' }}>
           <h1 style={{ fontSize: '20px', fontWeight: 700, letterSpacing: '-0.02em' }}>AD Gene Network</h1>
           <p style={{ fontSize: '13px', color: 'var(--muted)' }}>RWR propagation over STRING PPI + fusion ranking · Alzheimer's biomarker discovery</p>
         </div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <span style={{ fontSize: '12px', padding: '4px 10px', borderRadius: '999px', background: modelLoaded ? '#ecfdf5' : '#fef2f2', color: modelLoaded ? '#065f46' : '#991b1b', border: `1px solid ${modelLoaded ? '#a7f3d0' : '#fecaca'}` }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <span aria-live="polite" style={{ fontSize: '12px', padding: '4px 10px', borderRadius: '999px', background: modelLoaded ? '#ecfdf5' : '#fef2f2', color: modelLoaded ? '#065f46' : '#991b1b', border: `1px solid ${modelLoaded ? '#a7f3d0' : '#fecaca'}` }}>
             {modelLoaded ? `● Model ${health?.model_revision ?? ''} loaded` : '○ Model not released'}
           </span>
           <a href="https://string-db.org/api/" target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: 'var(--muted)' }}>STRING API</a>
@@ -97,9 +98,9 @@ export default function App() {
 
       <Banner modelLoaded={modelLoaded} revision={health?.model_revision} />
 
-      <main style={{ flex: 1, maxWidth: '1100px', width: '100%', margin: '0 auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-        <section style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px' }}>
-          <h2 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>Search genes</h2>
+      <main id="main-content" style={{ flex: 1, maxWidth: '1100px', width: '100%', margin: '0 auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <section aria-labelledby="search-heading" style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px' }}>
+          <h2 id="search-heading" style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>Search genes</h2>
           <SearchBox value={query} onChange={handleSearch} placeholder="Filter by symbol, e.g. APOE, TREM2, BIN1..." />
           <p style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '8px' }}>
             Scores are RWR steady-state probabilities fused with degree/PageRank/betweenness/closeness. Seed genes (26 known AD loci) anchor the walk with restart 0.3.
@@ -107,18 +108,18 @@ export default function App() {
         </section>
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: '40px', color: 'var(--muted)' }}>Loading ranking…</div>
+          <div role="status" aria-live="polite" aria-busy="true" style={{ textAlign: 'center', padding: '40px', color: 'var(--muted)' }}>Loading ranking…</div>
         ) : (
           <GeneTable genes={ranking?.genes ?? []} total={ranking?.total_genes ?? 0} modelLoaded={modelLoaded} onSelect={setSelected} />
         )}
 
         {selected && (
-          <section style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ fontSize: '16px', fontWeight: 600 }}>{selected.gene} <span style={{ color: 'var(--muted)', fontWeight: 400 }}>rank #{selected.rank}</span></h3>
-              <button onClick={() => setSelected(null)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>Close</button>
+          <section aria-labelledby="detail-heading" style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              <h3 id="detail-heading" style={{ fontSize: '16px', fontWeight: 600 }}>{selected.gene} <span style={{ color: 'var(--muted)', fontWeight: 400 }}>rank #{selected.rank}</span></h3>
+              <button onClick={() => setSelected(null)} aria-label={`Close details for ${selected.gene}`} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>Close</button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginTop: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '12px', marginTop: '16px' }}>
               <div><div style={{ fontSize: '11px', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Fusion score</div><div style={{ fontWeight: 600 }} className="mono">{selected.fusion_score?.toFixed(4) ?? '—'}</div></div>
               <div><div style={{ fontSize: '11px', color: 'var(--muted)', textTransform: 'uppercase' }}>RWR score</div><div className="mono">{selected.rwr_score.toExponential(3)}</div></div>
               <div><div style={{ fontSize: '11px', color: 'var(--muted)', textTransform: 'uppercase' }}>PageRank</div><div className="mono">{selected.pagerank.toFixed(4)}</div></div>

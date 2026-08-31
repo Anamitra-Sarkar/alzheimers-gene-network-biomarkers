@@ -13,7 +13,9 @@ import os
 import pathlib
 from typing import Optional
 
-from fastapi import FastAPI, Query, Depends, HTTPException
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Query, Path, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.models import GeneScore, RankingResponse, HealthResponse, ExplainResponse
@@ -109,10 +111,16 @@ def _build_demo_ranking() -> list[dict]:
 
 
 def create_app() -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
+        _try_load_model()
+        yield
+
     app = FastAPI(
         title="AD Gene-Network Biomarker API",
         version="0.1.0",
         description="Gene ranking for Alzheimer's disease relevance via RWR + fusion model",
+        lifespan=lifespan,
     )
 
     app.add_middleware(
@@ -122,10 +130,6 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
-    @app.on_event("startup")
-    def _startup():
-        _try_load_model()
 
     @app.get("/health", response_model=HealthResponse)
     def health():
@@ -150,11 +154,18 @@ def create_app() -> FastAPI:
 
     @app.get("/genes/ranking", response_model=RankingResponse)
     def ranking(
-        q: Optional[str] = Query(default=None, description="Filter by gene symbol substring"),
-        limit: int = Query(default=50, ge=1, le=200),
-        offset: int = Query(default=0, ge=0),
+        q: Optional[str] = Query(default=None, description="Filter by gene symbol substring", max_length=100),
+        limit: int = Query(default=50, ge=1, le=200, description="Page size (1-200)"),
+        offset: int = Query(default=0, ge=0, le=100000, description="Pagination offset"),
         user: dict | None = Depends(optional_auth),
     ):
+        # Explicit validation: q must be printable / not just whitespace; empty treated as None
+        if q is not None:
+            q = q.strip()
+            if q == "":
+                q = None
+            elif len(q) > 100:
+                raise HTTPException(status_code=422, detail="Query too long (max 100 chars)")
         _try_load_model()
         if not _MODEL_STATE["loaded"]:
             # Fail-closed: return empty ranking with honest banner state
@@ -175,9 +186,18 @@ def create_app() -> FastAPI:
             filtered = genes
 
         total = len(filtered)
-        page = filtered[offset : offset + limit]
-        # Convert to GeneScore
-        result = [GeneScore(**g) for g in page]
+        # Clamp offset beyond total to empty page (not error)
+        if offset > total:
+            page: list[dict] = []
+        else:
+            page = filtered[offset : offset + limit]
+        # Convert to GeneScore with per-row validation (skip malformed rows instead of 500)
+        result: list[GeneScore] = []
+        for g in page:
+            try:
+                result.append(GeneScore(**g))
+            except Exception:
+                continue
         return RankingResponse(
             genes=result,
             total_genes=total,
@@ -187,23 +207,34 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/genes/{gene_id}", response_model=ExplainResponse)
-    def explain(gene_id: str, user: dict | None = Depends(optional_auth)):
+    def explain(
+        gene_id: str = Path(..., min_length=1, max_length=64, description="Gene symbol", pattern=r"^[A-Za-z0-9._\-]+$"),
+        user: dict | None = Depends(optional_auth),
+    ):
+        # Additional explicit check to return clean 422 for pathologically long or empty input (Path does this, but keep defensive)
+        stripped = gene_id.strip()
+        if not stripped:
+            raise HTTPException(status_code=422, detail="Gene ID must be non-empty")
         _try_load_model()
         if not _MODEL_STATE["loaded"]:
             raise HTTPException(status_code=503, detail="Model not yet released: artifact not loaded (set MODEL_RELEASE_APPROVED=true and APPROVED_ARTIFACT_REVISION)")
 
         genes = _MODEL_STATE["genes"]
         for g in genes:
-            if g["gene"].lower() == gene_id.lower():
-                return ExplainResponse(
-                    gene=g["gene"],
-                    fusion_score=g.get("fusion_score"),
-                    rwr_score=g["rwr_score"],
-                    features={"degree": g["degree"], "pagerank": g["pagerank"], "betweenness": g["betweenness"], "closeness": g["closeness"]},
-                    seed_contributors=g.get("seed_contributors", []),
-                    is_seed=g.get("is_seed", False),
-                )
-        raise HTTPException(status_code=404, detail=f"Gene {gene_id} not found")
+            if g["gene"].lower() == stripped.lower():
+                # Defensive: ensure required fields exist, else 500 would leak; return 404-like if malformed row
+                try:
+                    return ExplainResponse(
+                        gene=g["gene"],
+                        fusion_score=g.get("fusion_score"),
+                        rwr_score=g["rwr_score"],
+                        features={"degree": g["degree"], "pagerank": g["pagerank"], "betweenness": g["betweenness"], "closeness": g["closeness"]},
+                        seed_contributors=g.get("seed_contributors", []),
+                        is_seed=g.get("is_seed", False),
+                    )
+                except KeyError as e:
+                    raise HTTPException(status_code=500, detail=f"Malformed gene record missing {e}")
+        raise HTTPException(status_code=404, detail=f"Gene {stripped} not found")
 
     @app.get("/auth/me")
     def me(user: dict = Depends(require_auth)):

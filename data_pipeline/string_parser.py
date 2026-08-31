@@ -48,44 +48,81 @@ def parse_string_links(
 
     Args:
         path: path to .txt or .txt.gz file. Format: header + rows "protein1 protein2 combined_score"
-        confidence_threshold: retain edges with combined_score >= threshold
+        confidence_threshold: retain edges with combined_score >= threshold (0-1000)
 
     Returns:
         (proteins, edges) where proteins is sorted list of unique protein IDs,
         edges is list of (i, j, score) with i/j indices into proteins list.
         Undirected edges appear once; self-loops are dropped.
+
+    Real-file quirks handled:
+        - plain text vs gzipped (.gz / .txt.gz) via suffix detection
+        - optional header row (protein1/protein2/combined_score, any casing)
+        - comment lines starting with '#'
+        - tab or space separated columns, extra trailing columns ignored
+        - missing optional columns / malformed rows skipped (not crashed)
+        - empty file (header only) returns empty graph honestly
     """
+    if not 0 <= confidence_threshold <= 1000:
+        raise ValueError(f"confidence_threshold must be in [0,1000], got {confidence_threshold}")
+
     path = pathlib.Path(path)
     if not path.exists():
         raise FileNotFoundError(f"STRING file not found: {path}. "
                                 "Download via: https://stringdb-downloads.org/download/protein.links.v12.0/9606.protein.links.v12.0.txt.gz "
                                 "and pass --string-path <local file>")
 
-    opener = gzip.open if path.suffix == ".gz" else open
+    # Robust gz detection: handle both .gz and .txt.gz (Path.suffix gives only last suffix)
+    is_gz = path.suffix == ".gz" or "".join(path.suffixes).endswith(".gz")
+    opener = gzip.open if is_gz else open  # type: ignore[assignment]
 
     proteins_set: set[str] = set()
     raw_edges: list[Tuple[str, str, int]] = []
 
-    with opener(path, "rt") as f:
-        header = f.readline()
-        # detect header
-        has_header = "protein1" in header.lower() or "protein" in header.lower()
-        lines = [] if has_header else [header]
-        lines += f.readlines()
+    with opener(path, "rt") as f:  # type: ignore[call-arg]
+        # Read all non-empty, non-comment lines, detect header robustly
+        raw_lines: list[str] = []
+        header_found = False
+        for raw in f:
+            stripped = raw.strip()
+            if not stripped:
+                continue
+            if stripped.startswith("#"):
+                continue
+            low = stripped.lower()
+            # header detection: any line containing protein1 or (protein and combined_score)
+            if not header_found and ("protein1" in low or ("protein" in low and "combined_score" in low) or "string_protein" in low):
+                header_found = True
+                continue
+            # Also skip a header that slipped through as first line with non-numeric score column
+            # We detect header before collecting; no need to add header line
+            raw_lines.append(stripped)
 
-        for line in lines:
-            line = line.strip()
-            if not line:
+        # Fallback: if we never saw a header but first token looks like header (e.g. "protein1"),
+        # the loop already skipped it. If file had only header, raw_lines will be empty -> honest empty graph.
+
+        for line in raw_lines:
+            # Skip comment lines that may have leading whitespace before '#'
+            if line.lstrip().startswith("#"):
                 continue
             parts = line.split()
             if len(parts) < 3:
                 continue
             p1, p2, score_s = parts[0], parts[1], parts[2]
+            if not p1 or not p2:
+                continue
             if p1 == p2:
                 continue
             try:
                 score = int(score_s)
             except ValueError:
+                # Handle scores like "732.0" or trailing comments after score
+                try:
+                    score = int(float(score_s))
+                except ValueError:
+                    continue
+            if not 0 <= score <= 1000:
+                # Clamp-beyond-range or malformed; skip if absurd
                 continue
             if score < confidence_threshold:
                 continue

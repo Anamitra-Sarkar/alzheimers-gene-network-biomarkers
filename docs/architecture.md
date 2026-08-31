@@ -26,10 +26,17 @@ Known AD seed genes (26 loci) ──┘           │
 ## Components
 
 ### 1. `data_pipeline/string_parser.py`
-- Parser for `9606.protein.links.v12.0.txt(.gz)` — header `protein1 protein2 combined_score`.
-- Filters `combined_score >= 700` (high-confidence). Documented real endpoints: `https://stringdb-downloads.org/download/protein.links.v12.0/9606.protein.links.v12.0.txt.gz` and API `https://string-db.org/api/`.
+- Parser for `9606.protein.links.v12.0.txt(.gz)` — header `protein1 protein2 combined_score` (space or tab separated).
+- Filters `combined_score >= 700` (high-confidence, threshold validated 0–1000). Documented real endpoints: `https://stringdb-downloads.org/download/protein.links.v12.0/9606.protein.links.v12.0.txt.gz` and API `https://string-db.org/api/`.
+- Real-file quirks handled: plain vs gzipped, comment lines `#`, header variants/casing, tab vs space separators, extra trailing columns ignored, malformed rows skipped, empty/header-only files return empty graph honestly, `score` float strings tolerated.
 - Builds symmetric sparse adjacency (`scipy.sparse.csr_matrix`) and column-normalized transition matrix `W = A D^{-1}`.
 - Real run: `python -m data_pipeline.cli build-graph --string-path <local file> --output artifacts/graph --threshold 700`. No download occurs in CI/sandbox.
+
+### 1b. `data_pipeline/string_info.py`
+- Parser for `9606.protein.info.v12.0.txt(.gz)` — header `#string_protein_id preferred_name` mapping STRING protein IDs to gene symbols.
+- Needed because `string_parser` returns ENSP protein IDs while `seed_genes` uses gene symbols; without translation `get_seed_vector` finds zero overlap on real data.
+- Real-file quirks handled: gz/casing/tab vs space, comment lines, `#`-prefixed header, extra columns, empty files, missing-column rows skipped.
+- `translate_gene_list()` maps protein IDs to symbols with fallback to raw ID (no silent loss). Used by `data_pipeline/real_run.py` for honest real evaluation.
 
 ### 2. `data_pipeline/seed_genes.py`
 - 26 hard-coded seed genes: APOE, APP, PSEN1, PSEN2, TREM2, CLU, CR1, PICALM, BIN1, ABCA7, SORL1, CD33, MS4A6A, ADAM10, PLCG2, CD2AP, EPHA1, HLA-DRB1, MEF2C, INPP5D, FERMT2, CELF1, NME8, CASS4, SPI1, ACE.
@@ -54,30 +61,41 @@ Known AD seed genes (26 loci) ──┘           │
 
 ### 6. `backend/app.py` — Release Gate
 - Fail-closed pattern: model artifacts are **not loaded** unless `MODEL_RELEASE_APPROVED=true` and `APPROVED_ARTIFACT_REVISION` is non-empty.
+- Uses modern `lifespan` (not deprecated `on_event`) to attempt load at startup; every endpoint re-checks gate so env changes mid-process are reflected honestly (tests).
 - `GET /health` and `GET /readiness` honestly report `model_loaded`, `model_approved`, `model_revision`. Never fabricate loaded state.
-- `GET /genes/ranking` returns `[]` with `model_loaded:false` when not released (honest abstention). `GET /genes/{id}` returns 503 when not loaded.
+- `GET /genes/ranking` returns `[]` with `model_loaded:false` when not released (honest abstention). When loaded, validates `q` (max 100 chars, trimmed), `limit` 1–200, `offset` 0–100000, clamps offset beyond total to empty page, and skips malformed rows instead of 500. Malformed query returns clean 422.
+- `GET /genes/{gene_id}` validates `gene_id` via pattern `^[A-Za-z0-9._\-]+$` (1–64 chars) — invalid IDs 422, not 500; returns 503 when not loaded, 404 if gene not found, with structured `detail` JSON.
 - Optional `DEMO_MODE=true` allows approved-release tests to synthesize a demo ranking without a real artifact file.
 - Auth: Firebase-shaped stub (`backend/auth.py`) reading `FIREBASE_SERVICE_ACCOUNT_JSON`; `verify_bearer_token` accepts mocked verifier. `GET /auth/me` requires valid Bearer token (401 otherwise).
 
+### 6b. `data_pipeline/real_run.py` — Real End-to-End Orchestration
+- Wires `string_parser` → `string_info` translation → RWR → topology features → leakage-free leave-one-seed-out CV (RWR recomputed per fold with held-out gene excluded — fixes the v1 leakage bug that gave AUPRC ≈1.0).
+- Real result (leakage-free, 2026-08-31): fusion AUPRC 0.651 vs degree-baseline 0.004, recall@10 0.346, recall@25 0.731 on 16,201 genes / 473,860 edges (STRING ≥700). See `docs/real-training-result-2026-08-31.md`.
+- Entry: `python -m data_pipeline.real_run --string-path ... --string-info-path ... --out artifacts/real-run-1`.
+
 ### 7. Frontend — React + Vite + TypeScript
 - No default Vite boilerplate styling. Clean modern layout: header with model status badge, abstention banner when not released, search box, ranked table, detail drawer with seed contributors, footer with data citations.
-- Banner matches backend's release gate honestly (`model not yet released` vs `Model loaded rev …`).
-- Table shows rank, gene, fusion, RWR, PageRank, degree, explain; seed genes highlighted; clicking opens explanation pane (which seed genes drove the score).
+- Banner matches backend's release gate honestly (`model not yet released` vs `Model loaded rev …`) and uses `role="alert"/"status"` + `aria-live` for screen readers.
+- Search box has hidden `<label>` + `aria-label`, `type="search"`, autocomplete off. Header has skip-to-content link, `flex-wrap` for narrow widths (≤640px media query).
+- Table shows rank, gene, fusion, RWR, PageRank, degree, explain; seed genes highlighted; clicking or pressing Enter/Space opens explanation drawer; rows are keyboard-focusable (`tabIndex`, `role="button"`, focus ring). Table uses `scope="col"` headers and `aria-label`. Loading state uses `aria-busy`/`role="status"`.
+- Detail drawer closes via accessible button with `aria-label`. Grid uses `auto-fit` for narrow screens. Footer contrast `#6b7280` on `#f8f9fb` kept accessible.
 - Types in `src/App.tsx`; components `Banner`, `SearchBox`, `GeneTable`.
 
 ## Real-Run Procedure (Kaggle/Modal)
 
 ```bash
-# 1. Download STRING
+# 1. Download STRING (links + protein info for symbol translation)
 wget https://stringdb-downloads.org/download/protein.links.v12.0/9606.protein.links.v12.0.txt.gz
-# 2. Build graph
+wget https://stringdb-downloads.org/download/protein.info.v12.0/9606.protein.info.v12.0.txt.gz
+# 2a. Low-level steps:
 python -m data_pipeline.cli build-graph --string-path 9606.protein.links.v12.0.txt.gz --output artifacts/graph --threshold 700
-# 3. Run RWR (uses seed genes inside)
 python -m data_pipeline.cli run-rwr --graph artifacts/graph.npz --output artifacts/rwr.npy --restart 0.3
-# 4. Compute features + train (features need to include rwr + topology)
+# 2b. OR real end-to-end (preferred, leakage-free):
+python -m data_pipeline.real_run --string-path 9606.protein.links.v12.0.txt.gz --string-info-path 9606.protein.info.v12.0.txt.gz --out artifacts/real-run-1 --threshold 700
+# 3. Compute features + train (features need to include rwr + topology)
 #    (construct features DataFrame via data_pipeline.features.compute_features + add labels)
 python -m data_pipeline.cli train --features artifacts/features.parquet --output artifacts/model.joblib --model-type logistic
-# 5. Serve
+# 4. Serve
 MODEL_RELEASE_APPROVED=true APPROVED_ARTIFACT_REVISION=$(git rev-parse HEAD) MODEL_ARTIFACT_PATH=artifacts/model.joblib uvicorn backend.app:app --host 0.0.0.0 --port 8000
 ```
 

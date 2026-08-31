@@ -39,13 +39,18 @@ def cmd_build_graph(args: argparse.Namespace) -> None:
 
 
 def cmd_run_rwr(args: argparse.Namespace) -> None:
+    if not 0 < args.restart < 1:
+        raise ValueError(f"--restart must be in (0,1), got {args.restart}")
     adj = sp.load_npz(args.graph)
     proteins_file = pathlib.Path(args.graph).with_suffix("").with_suffix(".proteins.txt")
     # try alternate naming
     if not proteins_file.exists():
         proteins_file = pathlib.Path(str(args.graph).replace(".npz", ".proteins.txt"))
     if proteins_file.exists():
-        gene_list = [l.strip() for l in open(proteins_file)]
+        gene_list = [l.strip() for l in open(proteins_file) if l.strip()]
+        if len(gene_list) != adj.shape[0]:
+            print(f"Warning: proteins file length {len(gene_list)} != graph dim {adj.shape[0]}, using synthetic names")
+            gene_list = [f"GENE{i}" for i in range(adj.shape[0])]
     else:
         gene_list = [f"GENE{i}" for i in range(adj.shape[0])]
         print(f"Warning: proteins file not found {proteins_file}, using synthetic names")
@@ -53,6 +58,8 @@ def cmd_run_rwr(args: argparse.Namespace) -> None:
     W = column_normalize(adj)
     p0 = get_seed_vector(gene_list, SEED_GENES)
     print(f"Seed genes in graph: {(p0>0).sum()}/{len(SEED_GENES)}")
+    if p0.sum() == 0:
+        raise ValueError("No seed genes found in graph -- check protein->symbol translation (see data_pipeline.string_info)")
     p = random_walk_with_restart(W, p0, restart_prob=args.restart, tol=1e-6)
     out = pathlib.Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -87,14 +94,14 @@ def main() -> None:
     p1 = sub.add_parser("build-graph", help="Build adjacency from STRING file")
     p1.add_argument("--string-path", required=True, help="Path to 9606.protein.links.v12.0.txt.gz")
     p1.add_argument("--output", required=True, help="Output prefix (e.g. /data/graph)")
-    p1.add_argument("--threshold", type=int, default=700, help="Combined score threshold")
+    p1.add_argument("--threshold", type=int, default=700, help="Combined score threshold 0-1000")
     p1.add_argument("--weighted", action="store_true", help="Use weighted edges")
     p1.set_defaults(func=cmd_build_graph)
 
     p2 = sub.add_parser("run-rwr", help="Run RWR propagation")
     p2.add_argument("--graph", required=True, help="Path to graph .npz")
     p2.add_argument("--output", required=True, help="Output .npy path")
-    p2.add_argument("--restart", type=float, default=0.3)
+    p2.add_argument("--restart", type=float, default=0.3, help="Restart probability in (0,1)")
     p2.set_defaults(func=cmd_run_rwr)
 
     p3 = sub.add_parser("train", help="Train fusion model")
