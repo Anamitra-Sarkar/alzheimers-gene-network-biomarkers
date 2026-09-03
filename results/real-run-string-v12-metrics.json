@@ -1,0 +1,61 @@
+{
+  "n_genes": 16201,
+  "n_edges": 473860,
+  "threshold": 700,
+  "n_seed_genes_present": 26,
+  "seed_genes_present": [
+    "NME8",
+    "SPI1",
+    "APOE",
+    "SORL1",
+    "ADAM10",
+    "CD33",
+    "ABCA7",
+    "EPHA1",
+    "APP",
+    "ACE",
+    "CLU",
+    "BIN1",
+    "PSEN1",
+    "MEF2C",
+    "FERMT2",
+    "CD2AP",
+    "HLA-DRB1",
+    "CASS4",
+    "PSEN2",
+    "CR1",
+    "TREM2",
+    "PICALM",
+    "INPP5D",
+    "MS4A6A",
+    "CELF1",
+    "PLCG2"
+  ],
+  "model_type": "logistic",
+  "feature_cols": [
+    "degree_norm",
+    "pagerank",
+    "betweenness",
+    "closeness",
+    "rwr_score"
+  ],
+  "fusion": {
+    "recall_at_k": {
+      "10": 0.34615384615384615,
+      "25": 0.6923076923076923,
+      "50": 0.7692307692307693,
+      "100": 0.7692307692307693
+    },
+    "auprc": 0.653751497965275
+  },
+  "degree_baseline": {
+    "recall_at_k": {
+      "10": 0.0,
+      "25": 0.0,
+      "50": 0.0,
+      "100": 0.0
+    },
+    "auprc": 0.004162512693802425
+  },
+  "interpretation": "fusion beats degree-only baseline"
+}
