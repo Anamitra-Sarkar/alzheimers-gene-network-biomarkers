@@ -13,7 +13,12 @@
 }
 body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  background: var(--bg);
+  background:
+    linear-gradient(rgba(248,249,251,0.93), rgba(248,249,251,0.98)),
+    url('/hero.png');
+  background-size: cover;
+  background-position: top center;
+  background-attachment: fixed;
   color: var(--text);
   line-height: 1.5;
 }
