@@ -36,3 +36,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, [tabindex]:focus-vis
   table { font-size: 12px !important; }
   th, td { padding: 6px 8px !important; }
 }
+@media (max-width: 800px) {
+  .ad-hero { grid-template-columns: 1fr !important; }
+  .ad-features { grid-template-columns: 1fr !important; }
+}

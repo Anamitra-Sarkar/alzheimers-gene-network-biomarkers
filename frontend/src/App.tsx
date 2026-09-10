@@ -93,7 +93,7 @@ export default function App() {
         </span>
       </nav>
 
-      <section style={{ maxWidth: '1100px', margin: '0 auto', width: '100%', boxSizing: 'border-box', display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: '40px', alignItems: 'center', padding: '32px 24px 40px' }}>
+      <section className="ad-hero" style={{ maxWidth: '1100px', margin: '0 auto', width: '100%', boxSizing: 'border-box', display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: '40px', alignItems: 'center', padding: '32px 24px 40px' }}>
         <div>
           <div style={{ textTransform: 'uppercase', letterSpacing: '0.14em', fontSize: '12px', fontWeight: 700, color: '#0e7490', marginBottom: '14px' }}>Alzheimer's biomarker discovery</div>
           <h1 style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: '36px', lineHeight: 1.15, margin: '0 0 18px' }}>
@@ -114,7 +114,7 @@ export default function App() {
         </figure>
       </section>
 
-      <section style={{ maxWidth: '1100px', margin: '0 auto 48px', width: '100%', boxSizing: 'border-box', padding: '0 24px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '18px' }}>
+      <section className="ad-features" style={{ maxWidth: '1100px', margin: '0 auto 48px', width: '100%', boxSizing: 'border-box', padding: '0 24px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '18px' }}>
         <div style={{ background: 'rgba(255,255,255,0.85)', border: '1px solid var(--border)', borderRadius: '14px', padding: '22px' }}>
           <span style={{ display: 'block', fontFamily: "'Fraunces', serif", fontSize: '13px', color: '#0e7490', marginBottom: '8px' }}>01</span>
           <h3 style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: '16px', margin: '0 0 8px' }}>Network-grounded scores</h3>
